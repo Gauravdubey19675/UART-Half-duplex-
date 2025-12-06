@@ -1,0 +1,302 @@
+module baud_rate_generator(Tx_enable , Rx_enable , clk , reset);
+input reset ;
+input clk ;
+output reg Rx_enable ;
+output reg Tx_enable ;
+
+reg [14:0]counter_tx ;
+reg [14:0]counter_rx ;
+
+always@(negedge clk or posedge reset)
+begin
+if(reset) 
+begin
+    counter_tx <= 15'b0;
+    Tx_enable  <= 1'b0;
+end 
+else 
+begin
+    if(counter_tx < 5208) begin
+        counter_tx <= counter_tx + 1;
+        Tx_enable  <= 1'b0;
+end 
+    else 
+    begin
+        counter_tx <= 15'b0;
+        Tx_enable  <= 1'b1; // ? Pulse every baud period
+    end
+end
+end
+
+always@(negedge clk or posedge reset)
+begin
+if(reset) 
+begin
+    counter_rx <= 15'b0;
+    Rx_enable  <= 1'b0;
+end
+ else
+  begin
+    if(counter_rx < 260) begin
+        counter_rx <= counter_rx+1;
+        Rx_enable  <= 1'b0;
+    end 
+    else 
+    begin
+        counter_rx <= 15'b0;
+        Rx_enable  <= 1'b1; //  Pulse on every oversample tick 
+    end
+end
+end
+endmodule
+
+
+// T module
+module transmitter(data , wr_en , data_in , clk_1 , reset);
+input reset;
+input clk_1;
+input [6:0]data_in;
+input wr_en;
+output reg data;
+
+wire Tx_enable;
+wire Rx_enable;
+reg [2:0]state_tx;
+reg [2:0]index;
+reg parity_count; // XOR karenge toh ek bit me adjust ho jaega
+
+baud_rate_generator  Transmitter(Tx_enable , Rx_enable , clk_1 , reset);
+
+parameter IDLE = 3'b000;
+parameter start = 3'b001;
+parameter data_start = 3'b010;
+parameter parity = 3'b011;
+parameter stop = 3'b100;
+
+always @(negedge clk_1 or posedge reset)
+begin
+if(reset) begin
+    state_tx<= IDLE;
+    index <= 3'b0;
+    parity_count<=1'b0;
+end
+ else 
+begin
+case(state_tx)
+IDLE : begin
+     if (wr_en)
+    begin
+        state_tx<= start;
+    end
+end
+
+start : begin
+    if (Tx_enable) 
+    begin
+        state_tx<= data_start;
+    end
+end
+
+data_start : 
+begin
+    if(Tx_enable) 
+    begin
+        if (index < 6)
+         begin //  Hum idhar hi parity calculate kar lenge
+            index <= index + 1;
+            parity_count<=parity_count^data;
+        end
+         else 
+        begin
+            parity_count<=parity_count^data;
+            state_tx<= parity;
+            index <= 3'b0;  //sending parity bit because if i will send in next state then the parity bit will be transferred in next to next time step , so this will lead to the data_mismatch.
+        end
+    end
+end
+
+parity : begin
+    if (Tx_enable) begin
+        state_tx<= stop;
+    end
+end
+
+stop : begin
+    if (Tx_enable) begin
+        state_tx<= IDLE;
+        parity_count<=1'b0;
+    end
+end
+
+endcase
+end
+end
+
+always @(*)
+begin
+case(state_tx)
+IDLE :
+begin
+ if (wr_en) begin
+       data = 1'b0;   // start bit
+      end 
+  else
+      data = 1'b1;
+end
+start :
+begin
+data = 1'b0;
+end
+data_start :
+begin
+data = data_in[index];
+end
+parity :
+begin
+data = parity_count;
+end
+stop : 
+begin
+data = 1'b1;
+end
+default : 
+data = 1'b0;
+endcase
+end
+
+
+
+
+
+
+endmodule
+
+
+
+module receiver(data_valid , data_invalid , reset , clk_2 , Rx);
+input Rx;
+input clk_2;
+input reset;
+output data_valid;
+output data_invalid;
+
+reg [2:0]state_rx;
+parameter IDLE = 3'b000;
+parameter start = 3'b001;
+parameter data_start = 3'b010;
+parameter parity_checker = 3'b011;
+parameter stop = 3'b100;
+
+reg [6:0]data_logger;
+
+wire Tx_enable;
+wire Rx_enable;
+reg [3:0]bit_index;
+reg parity;
+reg [3:0]counter;
+
+wire sample_signal;
+wire bit_index_signal;
+
+baud_rate_generator  Receiver(Tx_enable , Rx_enable , clk_2 , reset);
+
+// ? Counter increments every oversample tick (16 0versampling ki hai)
+always @(negedge clk_2 or posedge reset)
+begin
+if (reset) 
+counter <= 4'b0;
+else 
+begin
+if (Rx_enable)
+ begin
+    if(counter < 15) 
+    counter <= counter+1;
+    else 
+    counter <= 4'b0; // reset after 16 ticks
+end
+end
+end
+
+assign sample_signal    = (counter == 4'd8);  // Mid-bit pe sample karenge
+assign bit_index_signal = (counter == 4'd15); //Bit boundary(state change karenge)
+
+always @(negedge clk_2 or posedge reset)
+begin
+if (reset) begin
+    state_rx<= IDLE;
+    bit_index <= 4'b0;
+    parity <= 1'b0;
+    data_logger <= 10'b0;
+end else if (Rx_enable) begin
+case(state_rx)
+IDLE : begin
+ if(Rx == 0)
+ begin
+    state_rx<=start;
+ end
+   end
+
+
+start : begin
+    if(bit_index_signal) 
+    state_rx<= data_start; // ? Wait 1 bit time then start sampling data
+end
+
+data_start : 
+begin
+    if(sample_signal)
+     begin
+        data_logger[bit_index] <= Rx;
+        parity <= parity ^ Rx; // ? Accumulate parity
+    end
+    else if(bit_index_signal) 
+    begin
+        bit_index <= bit_index + 1;
+        if(bit_index == 6) 
+        begin
+        state_rx<= parity_checker;
+        bit_index <= 4'b0;
+        end
+    end
+end
+
+parity_checker : 
+begin
+ if(bit_index_signal)
+    begin
+     state_rx<= stop;
+    end
+end
+
+stop : begin
+    if(bit_index_signal)
+    begin
+    state_rx<= IDLE;
+    parity<=1'b0;
+    end  
+end
+
+endcase
+end
+end
+
+assign data_valid = (state_rx == parity_checker) && (Rx == parity);
+assign data_invalid = (state_rx == parity_checker) && (Rx != parity);
+
+endmodule
+
+
+module top(data_valid , data_invalid , clk_1 , clk_2 ,  reset , data_in , wr_en);
+input clk_1;
+input clk_2;
+input reset;
+input [6:0]data_in;
+input wr_en;
+output data_valid;
+output data_invalid;
+wire data;
+
+transmitter one(data , wr_en , data_in , clk_1 , reset);
+receiver   two(data_valid , data_invalid , reset , clk_2 , data);
+
+endmodule 
