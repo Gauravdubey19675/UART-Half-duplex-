@@ -1,0 +1,14 @@
+module top(data_valid , data_invalid , clk_1 , clk_2 ,  reset , data_in , wr_en);
+input clk_1;
+input clk_2;
+input reset;
+input [6:0]data_in;
+input wr_en;
+output data_valid;
+output data_invalid;
+wire data;
+
+transmitter one(data , wr_en , data_in , clk_1 , reset);
+receiver   two(data_valid , data_invalid , reset , clk_2 , data);
+
+endmodule 
