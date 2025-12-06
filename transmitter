@@ -1,0 +1,118 @@
+module transmitter(data , wr_en , data_in , clk_1 , reset);
+input reset;
+input clk_1;
+input [6:0]data_in;
+input wr_en;
+output reg data;
+
+wire Tx_enable;
+wire Rx_enable;
+reg [2:0]state_tx;
+reg [2:0]index;
+reg parity_count; // XOR karenge toh ek bit me adjust ho jaega
+
+baud_rate_generator  Transmitter(Tx_enable , Rx_enable , clk_1 , reset);
+
+parameter IDLE = 3'b000;
+parameter start = 3'b001;
+parameter data_start = 3'b010;
+parameter parity = 3'b011;
+parameter stop = 3'b100;
+
+always @(negedge clk_1 or posedge reset)
+begin
+if(reset) begin
+    state_tx<= IDLE;
+    index <= 3'b0;
+    parity_count<=1'b0;
+end
+ else 
+begin
+case(state_tx)
+IDLE : begin
+     if (wr_en)
+    begin
+        state_tx<= start;
+    end
+end
+
+start : begin
+    if (Tx_enable) 
+    begin
+        state_tx<= data_start;
+    end
+end
+
+data_start : 
+begin
+    if(Tx_enable) 
+    begin
+        if (index < 6)
+         begin //  Hum idhar hi parity calculate kar lenge
+            index <= index + 1;
+            parity_count<=parity_count^data;
+        end
+         else 
+        begin
+            parity_count<=parity_count^data;
+            state_tx<= parity;
+            index <= 3'b0;  //sending parity bit because if i will send in next state then the parity bit will be transferred in next to next time step , so this will lead to the data_mismatch.
+        end
+    end
+end
+
+parity : begin
+    if (Tx_enable) begin
+        state_tx<= stop;
+    end
+end
+
+stop : begin
+    if (Tx_enable) begin
+        state_tx<= IDLE;
+        parity_count<=1'b0;
+    end
+end
+
+endcase
+end
+end
+
+always @(*)
+begin
+case(state_tx)
+IDLE :
+begin
+ if (wr_en) begin
+       data = 1'b0;   // start bit
+      end 
+  else
+      data = 1'b1;
+end
+start :
+begin
+data = 1'b0;
+end
+data_start :
+begin
+data = data_in[index];
+end
+parity :
+begin
+data = parity_count;
+end
+stop : 
+begin
+data = 1'b1;
+end
+default : 
+data = 1'b0;
+endcase
+end
+
+
+
+
+
+
+endmodule
