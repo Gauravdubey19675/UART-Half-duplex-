@@ -1,0 +1,52 @@
+module baud_rate_generator(Tx_enable , Rx_enable , clk , reset);
+input reset ;
+input clk ;
+output reg Rx_enable ;
+output reg Tx_enable ;
+
+reg [14:0]counter_tx ;
+reg [14:0]counter_rx ;
+
+always@(negedge clk or posedge reset)
+begin
+if(reset) 
+begin
+    counter_tx <= 15'b0;
+    Tx_enable  <= 1'b0;
+end 
+else 
+begin
+    if(counter_tx < 5208) begin
+        counter_tx <= counter_tx + 1;
+        Tx_enable  <= 1'b0;
+end 
+    else 
+    begin
+        counter_tx <= 15'b0;
+        Tx_enable  <= 1'b1; // ? Pulse every baud period
+    end
+end
+end
+
+always@(negedge clk or posedge reset)
+begin
+if(reset) 
+begin
+    counter_rx <= 15'b0;
+    Rx_enable  <= 1'b0;
+end
+ else
+  begin
+    if(counter_rx < 260) begin
+        counter_rx <= counter_rx+1;
+        Rx_enable  <= 1'b0;
+    end 
+    else 
+    begin
+        counter_rx <= 15'b0;
+        Rx_enable  <= 1'b1; //  Pulse on every oversample tick 
+    end
+end
+end
+endmodule
+
