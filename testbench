@@ -1,0 +1,84 @@
+// Just because in between two sample_signals one Tx_enable is occuring and Tx and Rx are going to 2nd state together hence , only the data given by the Tx is sampled by the Rx 
+//(all this for starting case , and what if both start state 2 
+//together but so early that 2 sample signals occur , then 
+//after first sample signal the bit index give and take change , hence , next data is sampled only.........(basically the together moving of both states due to sync of Tx enable 
+//and bit_index signal is the key to synchronisation.....
+
+`timescale 1ns/1ps
+
+module top_tb;
+
+  reg clk_1;
+  reg clk_2;
+  reg reset;
+  reg wr_en;
+  reg [6:0] data_in;
+
+  // Instantiate your top module
+  top uut (
+    .clk_1(clk_1),
+    .clk_2(clk_2),
+    .reset(reset),
+    .data_in(data_in),
+    .wr_en(wr_en)
+  );
+
+  // Clock generation: 50 MHz (period 20 ns)
+  initial 
+  begin
+    clk_1 = 1'b0;
+    forever #10 clk_1 = ~clk_1;  // 20 ns full period
+  end
+  
+  initial 
+  begin
+      clk_2 = 1'b0;
+      forever #12.5 clk_2 = ~clk_2;  // 25 ns full period
+    end
+
+  initial 
+  begin
+    // Generate waveform dump
+    $dumpfile("top_tb.vcd");
+    $dumpvars(0, top_tb);
+
+    // Initial values
+    reset   = 1'b1;
+    wr_en   = 1'b0;
+    data_in = 7'b0;
+
+    // Hold reset for some time
+    #1000;          // 1 µs reset
+    reset = 1'b0;
+
+    // Wait a bit before transmission
+    #40000;          // 5 µs idle time
+
+    // Send first data byte (0x55 = 1010101)
+    data_in = 7'b1010100;
+    wr_en   = 1'b1;
+    #20;           // wr_en pulse for 1 clock
+    wr_en   = 1'b0;
+
+    // Ham wait krenge till full frame , full frame 
+    // margin
+    #1055000;
+    data_in = 7'b0111100;
+    wr_en = 1'b1;
+    #20
+    wr_en = 1'b0;
+    #2000000000;      // 2 ms wait
+
+   
+
+    $display("Simulation complete.");
+    $finish;
+  end
+
+  // Console monitor to see TX pin transitions
+  initial begin
+    $monitor($time ,"clk_1=%b , clk_2 = %b  ,reset=%b ,  data_in=%b , wr_en = %b",
+             clk_1 , clk_2 , reset , data_in , wr_en);
+  end
+
+endmodule
